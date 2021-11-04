@@ -3,7 +3,7 @@ import numpy as np
 
 
 class Hamiltonian:
-    def __init__(self, Npw, L, Znuc, beta2=1.5**2, pos=0.625):
+    def __init__(self, Npw, L, Znuc, beta2=1.5**2, pos=0.625, kT=1e-3, min_focc=1e-12):
         self.Npw = Npw
         self.L = L
         self._Gvec = None
@@ -16,6 +16,11 @@ class Hamiltonian:
         self._rhonuc_G = None
         self._rho = None
         self._rho_G = None
+        self.kT = kT
+        self._mu = None
+        self._vals = None
+        self._vecs = None
+        self._min_focc = min_focc
 
     @property
     def rhonuc_G(self):
@@ -55,41 +60,77 @@ class Hamiltonian:
 
     @property
     def _G_indices(self):
-        ni = np.roll(np.arange(self.Npw)+1-self.Npw//2, self.Npw//2+1)
-        return ni[:,None]-ni
+        ni = np.roll(np.arange(self.Npw) + 1 - self.Npw // 2, self.Npw // 2 + 1)
+        return ni[:, None] - ni
 
     @property
     def hamMat(self):
         return np.fft.ifft(self.veff)[self._G_indices] + 0.5 * self.Gvec**2 * np.eye(self.Npw)
 
-    def computeRho(self, vals, vecs, Nel, kT):
-        # find the Fermi energy
-        beta = 1. / kT
-        fermi = lambda x: 1/(1 + np.exp(beta * x)) if (beta * x) < 50 else 0
-        target = lambda mu: sum(fermi(eps-mu) for eps in vals) - Nel
-        mu, = fsolve (target, x0 = vals[Nel])
-        self.mu = mu
-        # compute rho and kinetic energy
-        self.Ekin = 0.
-        rho=np.zeros(shape=2*self.Npw, dtype=np.float64)
-        Npw2 = int (self.Npw/2)
-        for i in np.ndindex(vals.shape):
-            focc = fermi(vals[i]-mu)
-            if focc > 1e-12:
-                # get psi on large FFT mesh
-                psi_expand = np.zeros(shape=(2*self.Npw),dtype=np.complex128)
-                psi_expand[0:Npw2] = vecs[0:Npw2,i].flatten ()
-                psi_expand[-Npw2:] = vecs[-Npw2:,i].flatten ()
-                psi = np.fft.fft(psi_expand)/np.sqrt(self.L)
-                # add to density
-                rho += focc * (psi.real **2 + psi.imag ** 2)
-                # compute kinetic energy contribution
-                self.Ekin += focc * 0.5 * sum (
-                            (c.real ** 2 + c.imag ** 2) * g ** 2
-                             for c,g in zip(vecs[:,i].flatten (),
-                                            self.Gvec)
-                            )
-        return rho
+    def _get_fermi(self, x):
+        results = np.zeros_like(x)
+        cond = (x / self.kT < 50)
+        results[cond] = 1 / (1 + np.exp(x[cond] / self.kT))
+        return results
+
+    def _target_mu(self, mu):
+        return np.sum(self._get_fermi(self.vals - mu)) - self.Nel
+
+    @property
+    def mu(self):
+        if self._mu is None:
+            self._mu, = fsolve(self._target_mu, x0=self.vals[self.Nel])
+        return self._mu
+
+    @property
+    def vals(self):
+        if self._vals is None:
+            self._vals, self._vecs = np.linalg.eigh(self.hamMat)
+        return self._vals
+
+    @property
+    def _vals_trunc(self):
+        return self.vals[self.focc > self._min_focc]
+
+    @property
+    def vecs(self):
+        if self._vecs is None:
+            self._vals, self._vecs = np.linalg.eigh(self.hamMat)
+        return self._vecs
+
+    @property
+    def _vecs_trunc(self):
+        return self.vecs[:, self.focc > self._min_focc]
+
+    @vals.setter
+    def vals(self, v):
+        self._vals = v
+
+    @vecs.setter
+    def vecs(self, v):
+        self._vecs = v
+
+    @property
+    def focc(self):
+        return self._get_fermi(self.vals - self.mu)
+
+    @property
+    def _focc_trunc(self):
+        return self.focc[self.focc > self._min_focc]
+
+    def get_rho(self):
+        psi_expand = np.zeros(shape=(2 * self.Npw, len(self._focc_trunc))) * 1j
+        psi_expand[0:self.Npw // 2] = self._vecs_trunc[0:self.Npw // 2]
+        psi_expand[-self.Npw // 2:] = self._vecs_trunc[-self.Npw // 2:]
+        psi = np.fft.fft(psi_expand, axis=0) / np.sqrt(self.L)
+        return np.sum(np.absolute(psi)**2 * self._focc_trunc, axis=-1)
+
+    @property
+    def Ekin(self):
+        return 0.5 * np.einsum(
+            'j,ij,i->', self._focc_trunc, np.absolute(self._vecs_trunc)**2, self.Gvec**2,
+            optimize=True
+        )
 
     @property
     def rho(self):
@@ -97,8 +138,11 @@ class Hamiltonian:
 
     @rho.setter
     def rho(self, rho_in):
-        self._rho = np.asarray(rho_in)
+        self._rho = np.array(rho_in)
         self._rho_G = None
+        self._mu = None
+        self._vals = None
+        self._vecs = None
 
     @property
     def rho_G(self):
@@ -110,15 +154,15 @@ class Hamiltonian:
 
     @property
     def alpha(self):
-        return -3/4 * (3/np.pi)**(1/3)
+        return -3 / 4 * (3 / np.pi) ** (1 / 3)
 
     @property
     def eXc(self):
-        return np.sum(self.rho[self.rho > 0]**(4./3.)) * self.alpha * self.dL_2
+        return np.sum(self.rho[self.rho > 0]**(4. / 3.)) * self.alpha * self.dL_2
 
     @property
     def vXc(self):
-        return (4./3.) * self.alpha * np.maximum(self.rho, 0)**(1./3.)
+        return (4. / 3.) * self.alpha * np.maximum(self.rho, 0)**(1. / 3.)
 
     @property
     def V_G(self):
@@ -126,7 +170,7 @@ class Hamiltonian:
 
     @property
     def vH(self):
-        return np.real (np.fft.fft(self.V_G))
+        return np.real(np.fft.fft(self.V_G))
 
     @property
     def veff(self):
@@ -138,7 +182,7 @@ class Hamiltonian:
     @property
     def eLoc(self):
         if 'v_loc' in self.__dir__():
-            return sum (self.v_loc * self.rho) * self.dL_2
+            return sum(self.v_loc * self.rho) * self.dL_2
         else:
             return 0.
 
@@ -149,5 +193,5 @@ class Hamiltonian:
     def computePot(self, rho):
         self.rho = rho
 
-    def getEnergy (self):
+    def getEnergy(self):
         return self.Ekin + self.eXc + self.E_H + self.eLoc

@@ -2,14 +2,13 @@ from scipy.optimize import fsolve
 import numpy as np
 
 
-class Hamiltonian():
+class Hamiltonian:
     def __init__(self, Npw, L, Znuc, beta2=1.5**2, pos=0.625):
         self.Npw = Npw
         self.L = L
         self._Gvec = None
         self._Gvec_2 = None
         self._coulomb = None
-        
         self.pos = pos * L
         self.beta2 = beta2
         self.Znuc = Znuc
@@ -19,8 +18,9 @@ class Hamiltonian():
     @property
     def rhonuc_G(self):
         if self._rhonuc_G is None:
-            self._rhonuc_G = -(self.Znuc/self.L) * np.exp(1j * self.Gvec_2 * self.pos) \
-                      * np.exp(-0.5 * self.Gvec_2**2 * self.beta2)
+            self._rhonuc_G = -(self.Znuc / self.L) * np.exp(
+                1j * self.Gvec_2 * self.pos
+            ) * np.exp(-0.5 * self.Gvec_2**2 * self.beta2)
         return self._rhonuc_G
 
     @property
@@ -34,43 +34,40 @@ class Hamiltonian():
     @property
     def Gvec(self):
         if self._Gvec is None:
-            self._Gvec = np.fft.fftfreq (self.Npw, d = self.dL) * (2 * np.pi)
+            self._Gvec = np.fft.fftfreq(self.Npw, d=self.dL) * (2 * np.pi)
         return self._Gvec
-    
+
     @property
     def Gvec_2(self):
         if self._Gvec_2 is None:
-            self._Gvec_2 = np.fft.fftfreq (2 * self.Npw, d = self.dL_2) * (2 * np.pi)
+            self._Gvec_2 = np.fft.fftfreq(2 * self.Npw, d=self.dL_2) * (2 * np.pi)
         return self._Gvec_2
 
     @property
     def dL(self):
-        return self.L/self.Npw
+        return self.L / self.Npw
 
     @property
     def dL_2(self):
-        return self.dL/2
+        return self.dL / 2
 
-    def computeMat (self):
+    @property
+    def _G_indices(self):
+        ni = np.roll(np.arange(self.Npw)+1-self.Npw//2, self.Npw//2+1)
+        return ni[:,None]-ni
+
+    @property
+    def hamMat(self):
         # kinetic energy
-        self.hamMat = 0.5 * self.Gvec**2 * np.eye(len(self.Gvec), dtype=np.complex128)
-        veff_G = np.fft.ifft(self.veff)
-        ni = [ (i - self.Npw) if (2*i > self.Npw) else i
-              for i in range(self.Npw) ]
-        for ij in np.ndindex(self.hamMat.shape):
-            dij = ni[ij[0]] - ni[ij[1]]
-            if dij < 0: dij += 2*self.Npw
-            self.hamMat[ij] += veff_G[dij]
+        return np.fft.ifft(self.veff)[self._G_indices] + 0.5 * self.Gvec**2 * np.eye(self.Npw)
 
-    def computeRho (self, vals, vecs, Nel, kT):
-        
+    def computeRho(self, vals, vecs, Nel, kT):
         # find the Fermi energy
-        beta = 1./kT
+        beta = 1. / kT
         fermi = lambda x: 1/(1 + np.exp(beta * x)) if (beta * x) < 50 else 0
         target = lambda mu: sum(fermi(eps-mu) for eps in vals) - Nel
         mu, = fsolve (target, x0 = vals[Nel])
         self.mu = mu
-        
         # compute rho and kinetic energy
         self.Ekin = 0.
         rho=np.zeros(shape=2*self.Npw, dtype=np.float64)
@@ -82,23 +79,19 @@ class Hamiltonian():
                 psi_expand = np.zeros(shape=(2*self.Npw),dtype=np.complex128)
                 psi_expand[0:Npw2] = vecs[0:Npw2,i].flatten ()
                 psi_expand[-Npw2:] = vecs[-Npw2:,i].flatten ()
-                
                 psi = np.fft.fft(psi_expand)/np.sqrt(self.L)
                 # add to density
                 rho += focc * (psi.real **2 + psi.imag ** 2)
-                
                 # compute kinetic energy contribution
                 self.Ekin += focc * 0.5 * sum (
                             (c.real ** 2 + c.imag ** 2) * g ** 2
                              for c,g in zip(vecs[:,i].flatten (),
                                             self.Gvec)
                             )
-
         return rho
 
     def computePot(self, rho):
         rho_G = np.fft.ifft(rho)
-
         rho_G += self.rhonuc_G
         rho_G[0]=0.
         V_G = rho_G * self.coulomb
@@ -118,6 +111,6 @@ class Hamiltonian():
             self.eLoc = sum (self.v_loc * rho) * self.dL_2
         else:
             self.eLoc = 0.
-            
+
     def getEnergy (self):
         return self.Ekin + self.eXc + self.E_H + self.eLoc

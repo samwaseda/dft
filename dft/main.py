@@ -68,10 +68,11 @@ class Hamiltonian:
         return np.fft.ifft(self.veff)[self._G_indices] + 0.5 * self.Gvec**2 * np.eye(self.Npw)
 
     def _get_fermi(self, x):
+        x = np.atleast_1d(x)
         results = np.zeros_like(x)
         cond = (x / self.kT < 50)
         results[cond] = 1 / (1 + np.exp(x[cond] / self.kT))
-        return results
+        return results.squeeze()
 
     def _target_mu(self, mu):
         return np.sum(self._get_fermi(self.vals - mu)) - self.Nel

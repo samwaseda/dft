@@ -3,7 +3,29 @@ import numpy as np
 
 
 class Hamiltonian:
+    """
+    Simple plane wave DFT class.
+
+    Example:
+    ```
+    h = Hamiltonian(Npw=100, L=5, Nel=7)
+    for _ in range(10):
+        h.rho = rho_in
+        rho_out = h.get_rho()
+        rho_in = rho_out
+    ```
+    """
     def __init__(self, Npw, L, Znuc, beta2=1.5**2, pos=0.625, kT=1e-3, min_focc=1e-12):
+        """
+        Args:
+            Npw (int): Number of plane waves
+            L (float): Box length
+            Znuc (int): Number of protons
+            beta2 (float): Gaussian width of the core
+            pos (float): Relative position of the core
+            kT (float): Boltzmann factor times temperature
+            min_focc (float): Minimum occupancy to consider for the energy calculation
+        """
         self.Npw = Npw
         self.L = L
         self._Gvec = None
@@ -151,16 +173,16 @@ class Hamiltonian:
         return self._rho_G
 
     @property
-    def alpha(self):
+    def _alpha(self):
         return -3 / 4 * (3 / np.pi) ** (1 / 3)
 
     @property
     def eXc(self):
-        return np.sum(self.rho[self.rho > 0]**(4. / 3.)) * self.alpha * self.dL / 2
+        return np.sum(self.rho[self.rho > 0]**(4. / 3.)) * self._alpha * self.dL / 2
 
     @property
     def vXc(self):
-        return (4. / 3.) * self.alpha * np.maximum(self.rho, 0)**(1. / 3.)
+        return (4. / 3.) * self._alpha * np.maximum(self.rho, 0)**(1. / 3.)
 
     @property
     def V_G(self):

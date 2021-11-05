@@ -165,7 +165,7 @@ class Hamiltonian:
         self._vecs = None
 
     @property
-    def _rho_G(self):
+    def rho_G(self):
         if self._rho_G is None:
             self._rho_G = np.fft.ifft(self.rho)
             self._rho_G += self.rhonuc_G
@@ -186,7 +186,7 @@ class Hamiltonian:
 
     @property
     def V_G(self):
-        return self._rho_G * self.coulomb
+        return self.rho_G * self.coulomb
 
     @property
     def vH(self):
@@ -208,7 +208,7 @@ class Hamiltonian:
 
     @property
     def E_H(self):
-        return 0.5 * np.vdot(self._rho_G, self.V_G).real * self.L
+        return 0.5 * np.vdot(self.rho_G, self.V_G).real * self.L
 
     def computePot(self, rho):
         self.rho = rho

@@ -20,7 +20,7 @@ class Hamiltonian:
         Args:
             Npw (int): Number of plane waves
             L (float): Box length
-            Znuc (int): Number of protons
+            Znuc (int): Number of protons (currently also number of electrons)
             beta2 (float): Gaussian width of the core
             pos (float): Relative position of the core
             kT (float): Boltzmann factor times temperature
@@ -82,8 +82,8 @@ class Hamiltonian:
         return ni[:, None] - ni
 
     @property
-    def hamMat(self):
-        return np.fft.ifft(self.veff)[self._G_indices] + 0.5 * self.Gvec**2 * np.eye(self.Npw)
+    def ham_mat(self):
+        return np.fft.ifft(self.v_eff)[self._G_indices] + 0.5 * self.Gvec**2 * np.eye(self.Npw)
 
     def _get_fermi(self, x):
         x = np.atleast_1d(x)
@@ -104,7 +104,7 @@ class Hamiltonian:
     @property
     def vals(self):
         if self._vals is None:
-            self._vals, self._vecs = np.linalg.eigh(self.hamMat)
+            self._vals, self._vecs = np.linalg.eigh(self.ham_mat)
         return self._vals
 
     @property
@@ -114,7 +114,7 @@ class Hamiltonian:
     @property
     def vecs(self):
         if self._vecs is None:
-            self._vals, self._vecs = np.linalg.eigh(self.hamMat)
+            self._vals, self._vecs = np.linalg.eigh(self.ham_mat)
         return self._vecs
 
     @property
@@ -146,7 +146,7 @@ class Hamiltonian:
         return np.sum(np.absolute(psi)**2 * self._focc_trunc, axis=-1)
 
     @property
-    def Ekin(self):
+    def e_kin(self):
         return 0.5 * np.einsum(
             'j,ij,i->', self._focc_trunc, np.absolute(self._vecs_trunc)**2, self.Gvec**2,
             optimize=True
@@ -154,6 +154,7 @@ class Hamiltonian:
 
     @property
     def rho(self):
+        """Input charge density. For the output charge density, use `get_rho()`."""
         return self._rho
 
     @rho.setter
@@ -177,41 +178,39 @@ class Hamiltonian:
         return -3 / 4 * (3 / np.pi) ** (1 / 3)
 
     @property
-    def eXc(self):
+    def e_xc(self):
         return np.sum(self.rho[self.rho > 0]**(4. / 3.)) * self._alpha * self._dL / 2
 
     @property
-    def vXc(self):
+    def v_xc(self):
         return (4. / 3.) * self._alpha * np.maximum(self.rho, 0)**(1. / 3.)
 
     @property
-    def V_G(self):
+    def v_G(self):
         return self.rho_G * self.coulomb
 
     @property
-    def vH(self):
-        return np.real(np.fft.fft(self.V_G))
+    def v_H(self):
+        return np.real(np.fft.fft(self.v_G))
 
     @property
-    def veff(self):
-        veff = self.vH + self.vXc
+    def v_eff(self):
+        veff = self.v_H + self.v_xc
         if 'v_loc' in self.__dir__():
             veff += self.v_loc
         return veff
 
     @property
-    def eLoc(self):
+    def e_loc(self):
         if 'v_loc' in self.__dir__():
             return sum(self.v_loc * self.rho) * self._dL / 2
         else:
             return 0.
 
     @property
-    def E_H(self):
-        return 0.5 * np.vdot(self.rho_G, self.V_G).real * self.L
+    def e_H(self):
+        return 0.5 * np.vdot(self.rho_G, self.v_G).real * self.L
 
-    def computePot(self, rho):
-        self.rho = rho
-
-    def getEnergy(self):
-        return self.Ekin + self.eXc + self.E_H + self.eLoc
+    @property
+    def e_tot(self):
+        return self.e_kin + self.e_xc + self.e_H + self.e_loc

@@ -47,16 +47,12 @@ class Hamiltonian:
     @property
     def Gvec_2(self):
         if self._Gvec_2 is None:
-            self._Gvec_2 = np.fft.fftfreq(2 * self.Npw, d=self.dL_2) * (2 * np.pi)
+            self._Gvec_2 = np.fft.fftfreq(2 * self.Npw, d=self.dL / 2) * (2 * np.pi)
         return self._Gvec_2
 
     @property
     def dL(self):
         return self.L / self.Npw
-
-    @property
-    def dL_2(self):
-        return self.dL / 2
 
     @property
     def _G_indices(self):
@@ -160,7 +156,7 @@ class Hamiltonian:
 
     @property
     def eXc(self):
-        return np.sum(self.rho[self.rho > 0]**(4. / 3.)) * self.alpha * self.dL_2
+        return np.sum(self.rho[self.rho > 0]**(4. / 3.)) * self.alpha * self.dL / 2
 
     @property
     def vXc(self):
@@ -184,7 +180,7 @@ class Hamiltonian:
     @property
     def eLoc(self):
         if 'v_loc' in self.__dir__():
-            return sum(self.v_loc * self.rho) * self.dL_2
+            return sum(self.v_loc * self.rho) * self.dL / 2
         else:
             return 0.
 

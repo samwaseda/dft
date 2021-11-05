@@ -82,7 +82,7 @@ class Hamiltonian:
         return ni[:, None] - ni
 
     @property
-    def ham_mat(self):
+    def _ham_mat(self):
         return np.fft.ifft(self.v_eff)[self._G_indices] + 0.5 * self.Gvec**2 * np.eye(self.Npw)
 
     def _get_fermi(self, x):
@@ -104,7 +104,7 @@ class Hamiltonian:
     @property
     def vals(self):
         if self._vals is None:
-            self._vals, self._vecs = np.linalg.eigh(self.ham_mat)
+            self._vals, self._vecs = np.linalg.eigh(self._ham_mat)
         return self._vals
 
     @property
@@ -114,7 +114,7 @@ class Hamiltonian:
     @property
     def vecs(self):
         if self._vecs is None:
-            self._vals, self._vecs = np.linalg.eigh(self.ham_mat)
+            self._vals, self._vecs = np.linalg.eigh(self._ham_mat)
         return self._vecs
 
     @property

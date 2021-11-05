@@ -48,32 +48,32 @@ class Hamiltonian:
     def rhonuc_G(self):
         if self._rhonuc_G is None:
             self._rhonuc_G = -(self.Znuc / self.L) * np.exp(
-                1j * self.Gvec_2 * self.pos
-            ) * np.exp(-0.5 * self.Gvec_2**2 * self.beta2)
+                1j * self._Gvec_2 * self.pos
+            ) * np.exp(-0.5 * self._Gvec_2**2 * self.beta2)
         return self._rhonuc_G
 
     @property
     def coulomb(self):
         if self._coulomb is None:
-            self._coulomb = np.zeros(len(self.Gvec_2))
-            cond = np.abs(self.Gvec_2) > 1e-10
-            self._coulomb[cond] = 4 * np.pi / self.Gvec_2[cond]**2
+            self._coulomb = np.zeros(len(self._Gvec_2))
+            cond = np.abs(self._Gvec_2) > 1e-10
+            self._coulomb[cond] = 4 * np.pi / self._Gvec_2[cond]**2
         return self._coulomb
 
     @property
-    def Gvec(self):
+    def _Gvec(self):
         if self._Gvec is None:
-            self._Gvec = np.fft.fftfreq(self.Npw, d=self.dL) * (2 * np.pi)
+            self._Gvec = np.fft.fftfreq(self.Npw, d=self._dL) * (2 * np.pi)
         return self._Gvec
 
     @property
-    def Gvec_2(self):
+    def _Gvec_2(self):
         if self._Gvec_2 is None:
-            self._Gvec_2 = np.fft.fftfreq(2 * self.Npw, d=self.dL / 2) * (2 * np.pi)
+            self._Gvec_2 = np.fft.fftfreq(2 * self.Npw, d=self._dL / 2) * (2 * np.pi)
         return self._Gvec_2
 
     @property
-    def dL(self):
+    def _dL(self):
         return self.L / self.Npw
 
     @property
@@ -83,7 +83,7 @@ class Hamiltonian:
 
     @property
     def hamMat(self):
-        return np.fft.ifft(self.veff)[self._G_indices] + 0.5 * self.Gvec**2 * np.eye(self.Npw)
+        return np.fft.ifft(self.veff)[self._G_indices] + 0.5 * self._Gvec**2 * np.eye(self.Npw)
 
     def _get_fermi(self, x):
         x = np.atleast_1d(x)
@@ -148,7 +148,7 @@ class Hamiltonian:
     @property
     def Ekin(self):
         return 0.5 * np.einsum(
-            'j,ij,i->', self._focc_trunc, np.absolute(self._vecs_trunc)**2, self.Gvec**2,
+            'j,ij,i->', self._focc_trunc, np.absolute(self._vecs_trunc)**2, self._Gvec**2,
             optimize=True
         )
 
@@ -165,7 +165,7 @@ class Hamiltonian:
         self._vecs = None
 
     @property
-    def rho_G(self):
+    def _rho_G(self):
         if self._rho_G is None:
             self._rho_G = np.fft.ifft(self.rho)
             self._rho_G += self.rhonuc_G
@@ -178,7 +178,7 @@ class Hamiltonian:
 
     @property
     def eXc(self):
-        return np.sum(self.rho[self.rho > 0]**(4. / 3.)) * self._alpha * self.dL / 2
+        return np.sum(self.rho[self.rho > 0]**(4. / 3.)) * self._alpha * self._dL / 2
 
     @property
     def vXc(self):
@@ -186,7 +186,7 @@ class Hamiltonian:
 
     @property
     def V_G(self):
-        return self.rho_G * self.coulomb
+        return self._rho_G * self.coulomb
 
     @property
     def vH(self):
@@ -202,13 +202,13 @@ class Hamiltonian:
     @property
     def eLoc(self):
         if 'v_loc' in self.__dir__():
-            return sum(self.v_loc * self.rho) * self.dL / 2
+            return sum(self.v_loc * self.rho) * self._dL / 2
         else:
             return 0.
 
     @property
     def E_H(self):
-        return 0.5 * np.vdot(self.rho_G, self.V_G).real * self.L
+        return 0.5 * np.vdot(self._rho_G, self.V_G).real * self.L
 
     def computePot(self, rho):
         self.rho = rho

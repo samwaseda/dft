@@ -104,6 +104,7 @@ class Hamiltonian:
 
     @vals.setter
     def vals(self, v):
+        self._mu = None
         self._vals = v
 
     @vecs.setter

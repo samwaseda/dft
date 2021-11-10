@@ -82,7 +82,7 @@ class Hamiltonian:
         return ni[:, None] - ni
 
     @property
-    def _ham_mat(self):
+    def ham_mat(self):
         return np.fft.ifft(self.v_eff)[self._G_indices] + 0.5 * self.Gvec**2 * np.eye(self.Npw)
 
     def _get_fermi(self, x):
@@ -104,7 +104,7 @@ class Hamiltonian:
     @property
     def vals(self):
         if self._vals is None:
-            self._vals, self._vecs = np.linalg.eigh(self._ham_mat)
+            self._vals, self._vecs = np.linalg.eigh(self.ham_mat)
         return self._vals
 
     @property
@@ -114,7 +114,7 @@ class Hamiltonian:
     @property
     def vecs(self):
         if self._vecs is None:
-            self._vals, self._vecs = np.linalg.eigh(self._ham_mat)
+            self._vals, self._vecs = np.linalg.eigh(self.ham_mat)
         return self._vecs
 
     @property
@@ -165,13 +165,14 @@ class Hamiltonian:
         self._vals = None
         self._vecs = None
 
-    @property
-    def rho_G(self):
+    def get_rho_G(self, include_core=True):
         if self._rho_G is None:
             self._rho_G = np.fft.ifft(self.rho)
-            self._rho_G += self.rhonuc_G
-            self._rho_G[0] = 0.
-        return self._rho_G
+        rho_G = self._rho_G.copy()
+        if include_core:
+            rho_G += self.rhonuc_G
+        rho_G[0] = 0.
+        return rho_G
 
     @property
     def _alpha(self):
@@ -187,7 +188,7 @@ class Hamiltonian:
 
     @property
     def v_G(self):
-        return self.rho_G * self.coulomb
+        return self.get_rho_G(include_core=True) * self.coulomb
 
     @property
     def v_H(self):
@@ -195,22 +196,61 @@ class Hamiltonian:
 
     @property
     def v_eff(self):
-        veff = self.v_H + self.v_xc
-        if 'v_loc' in self.__dir__():
-            veff += self.v_loc
-        return veff
+        return self.v_H + self.v_xc
+
+    @property
+    def v_loc(self):
+        return self.coulomb * self.rhonuc_G
 
     @property
     def e_loc(self):
-        if 'v_loc' in self.__dir__():
-            return sum(self.v_loc * self.rho) * self._dL / 2
-        else:
-            return 0.
+        return np.vdot(self.get_rho_G(include_core=False), self.v_loc).real * self.L
+
+    @property
+    def e_Ewald(self):
+        return 0.5 * np.vdot(self.rhonuc_G, self.v_loc).real * self.L
 
     @property
     def e_H(self):
-        return 0.5 * np.vdot(self.rho_G, self.v_G).real * self.L
+        return 0.5 * np.vdot(
+            self.get_rho_G(include_core=False), self.get_rho_G(include_core=False) * self.coulomb
+        ).real * self.L
 
     @property
     def e_tot(self):
-        return self.e_kin + self.e_xc + self.e_H + self.e_loc
+        return self.e_kin + self.e_xc + self.e_H + self.e_loc + self.e_Ewald
+
+    @property
+    def S_G(self):
+        return np.exp(1j * self.Gvec_2 * self.pos)
+
+    @property
+    def dvloc_dGGG(self):
+        return 2 * (self.Znuc / self.L) * np.exp(
+            -0.5 * self.Gvec_2**2 * self.beta2
+        ) * self.coulomb * (1 + 0.5 * self.beta2 * self.Gvec_2**2)
+
+    @property
+    def p_Ewald(self):
+        return 1 / self.L**2 / 2 * np.sum(self.coulomb * np.exp(
+            -self.Gvec_2**2 * self.beta2
+        ) * self.Znuc**2 * (2 * self.beta2 * self.Gvec_2**2 + 1)) + 2 * np.pi * self.beta2 / self.L**2 * self.Znuc**2
+
+    @property
+    def p_kin(self):
+        return np.einsum(
+            'j,ij,i->', self._focc_trunc, np.absolute(self._vecs_trunc)**2, self.Gvec**2,
+            optimize=True
+        ) / self.L
+
+    @property
+    def p_el(self):
+        return -0.5 * np.vdot(self.get_rho_G(include_core=False), self.get_rho_G(include_core=False) * self.coulomb).real
+
+    @property
+    def p_loc(self):
+        return -np.vdot(self.S_G * (self.dvloc_dGGG + self.v_loc), self.get_rho_G(include_core=False)).real
+
+    @property
+    def p_xc(self):
+        return (self.e_xc - np.sum(self.rho * self.v_xc) * self._dL / 2) / self.L
